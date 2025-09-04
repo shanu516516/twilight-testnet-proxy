@@ -1,0 +1,326 @@
+map $http_upgrade $connection_upgrade {
+  default upgrade;
+  ''      close;
+}
+
+# ---- upstreams (parameterize if you like) ----
+upstream relayer     { server ${RELAYER_BACKEND}; }
+upstream orderapi    { server ${ORDERAPI_BACKEND};  }
+upstream auth        { server ${AUTH_BACKEND};       }
+upstream api         { server ${WEB_BACKEND};       }
+upstream ws          { server ${WS_BACKEND};        }
+
+# ---------- :80 redirectors ----------
+# relayer.${DOMAIN}
+server {
+  listen 80; listen [::]:80;
+  server_name relayer.${DOMAIN} www.relayer.${DOMAIN};
+  server_tokens off;
+  location /.well-known/acme-challenge/ { root /var/www/certbot; }
+  location / { return 301 https://relayer.${DOMAIN}$request_uri; }
+}
+
+# frontend.${DOMAIN}
+server {
+  listen 80; listen [::]:80;
+  server_name frontend.${DOMAIN} www.frontend.${DOMAIN};
+  server_tokens off;
+  location /.well-known/acme-challenge/ { root /var/www/certbot; }
+  location / { return 301 https://frontend.${DOMAIN}$request_uri; }
+}
+
+
+# lcd.${DOMAIN}
+server {
+    listen 80; listen [::]:80;
+    server_name lcd.${DOMAIN} www.lcd.${DOMAIN};
+    server_tokens off;
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://lcd.${DOMAIN}$request_uri;
+    }
+}
+
+# rpc.${DOMAIN}
+server {
+    listen 80; listen [::]:80;
+
+    server_name rpc.${DOMAIN} www.rpc.${DOMAIN};
+    server_tokens off;
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+    location / {
+        return 301 https://rpc.${DOMAIN}$request_uri;
+    }
+}
+
+# zkos.${DOMAIN}
+server {
+    listen 80; listen [::]:80;
+    server_name zkos.${DOMAIN} www.zkos.${DOMAIN};
+    server_tokens off;
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+    location / {
+        return 301 https://zkos.${DOMAIN}$request_uri;
+    }
+}
+
+# faucet.${DOMAIN}
+server {
+    listen 80; listen [::]:80;
+    server_name faucet.${DOMAIN} www.faucet.${DOMAIN};
+    server_tokens off;
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+    location / {
+        return 301 https://faucet.${DOMAIN}$request_uri;
+    }
+}
+
+# explorer.${DOMAIN}
+server {
+    listen 80; listen [::]:80;
+    server_name explorer.${DOMAIN} www.explorer.${DOMAIN};
+    server_tokens off;
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+    location / {
+        return 301 https://explorer.${DOMAIN}$request_uri;
+    }
+}
+
+
+# zk-kyc.${DOMAIN}
+server {
+    listen 80; listen [::]:80;
+    server_name zk-kyc.${DOMAIN} www.zk-kyc.${DOMAIN};
+    server_tokens off;
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+    location / {
+        return 301 https://zk-kyc.${DOMAIN}$request_uri;
+    }
+}
+
+
+
+# ---------- relayer.${DOMAIN} :443 ----------
+server {
+  listen 443 ssl http2; listen [::]:443 ssl http2;
+  server_name relayer.${DOMAIN};
+
+  ssl_certificate     /etc/nginx/ssl/live/relayer.${DOMAIN}/fullchain.pem;
+  ssl_certificate_key /etc/nginx/ssl/live/relayer.${DOMAIN}/privkey.pem;
+
+  location /relayer   { proxy_pass http://relayer; }
+  location /clientapi { proxy_pass http://orderapi; }
+
+  location /ws {
+    proxy_pass http://ws;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+  }
+
+  location = /check        { proxy_pass http://api; }
+  location = /api/private  { proxy_pass http://api; }
+  location /api            { proxy_pass http://api; }
+
+  location = /register     { proxy_pass http://auth/register; }
+  location = /regenerate   { proxy_pass http://api; }
+}
+
+# ---------- lcd.${DOMAIN} :443 (1317) ----------
+server {
+  listen 443 ssl; listen [::]:443 ssl;
+  server_name lcd.${DOMAIN};
+  ssl_certificate     /etc/nginx/ssl/live/lcd.${DOMAIN}/fullchain.pem;
+  ssl_certificate_key /etc/nginx/ssl/live/lcd.${DOMAIN}/privkey.pem;
+
+  location / {
+    proxy_pass http://${LCD_HOST}/;
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS';
+    add_header Access-Control-Allow-Headers 'Content-Type, Authorization';
+    if ($request_method = OPTIONS) {
+      add_header Content-Length 0;
+      add_header Content-Type text/plain;
+      return 204;
+    }
+  }
+}
+
+# ---------- rpc.${DOMAIN} :443 (26657 + WS) ----------
+server {
+  listen 443 ssl; listen [::]:443 ssl;
+  server_name rpc.${DOMAIN};
+  ssl_certificate     /etc/nginx/ssl/live/rpc.${DOMAIN}/fullchain.pem;
+  ssl_certificate_key /etc/nginx/ssl/live/rpc.${DOMAIN}/privkey.pem;
+
+  location / {
+    proxy_pass http://${RPC_HOST}/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade    $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 60s;
+
+    if ($request_method = OPTIONS) {
+      add_header Access-Control-Allow-Origin  * always;
+      add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS' always;
+      add_header Access-Control-Allow-Headers 'Content-Type, Authorization' always;
+      add_header Content-Length 0;
+      add_header Content-Type text/plain;
+      return 204;
+    }
+    add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS' always;
+    add_header Access-Control-Allow-Headers 'Content-Type, Authorization' always;
+  }
+}
+
+# ---------- frontend.${DOMAIN} -> frontend ----------
+server {
+  listen 443 ssl; listen [::]:443 ssl;
+  server_name frontend.${DOMAIN};
+  ssl_certificate     /etc/nginx/ssl/live/frontend.${DOMAIN}/fullchain.pem;
+  ssl_certificate_key /etc/nginx/ssl/live/frontend.${DOMAIN}/privkey.pem;
+
+  location / {
+    proxy_pass http://${FRONTEND};
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    add_header Access-Control-Allow-Origin  *;
+    add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS';
+    add_header Access-Control-Allow-Headers 'Content-Type, Authorization';
+    if ($request_method = OPTIONS) {
+      add_header Content-Length 0;
+      add_header Content-Type text/plain;
+      return 204;
+    }
+  }
+}
+
+# zkos server at ssl
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name zkos.${DOMAIN};
+
+    ssl_certificate     /etc/nginx/ssl/live/zkos.${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/nginx/ssl/live/zkos.${DOMAIN}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+
+
+    location / {
+      proxy_pass http://${ZKOS_HOST};
+    }
+
+}
+
+# faucet.${DOMAIN} at ssl for port 6969
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name faucet.${DOMAIN};
+
+    ssl_certificate     /etc/nginx/ssl/live/faucet.${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/nginx/ssl/live/faucet.${DOMAIN}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    location / {
+        proxy_pass http://${FAUCET_HOST}/;
+        proxy_http_version          1.1;
+        proxy_set_header Host       $host;
+        proxy_set_header X-Real-IP  $remote_addr;
+        proxy_hide_header Access-Control-Allow-Origin;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        add_header Access-Control-Allow-Origin  *;
+        add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS';
+        add_header Access-Control-Allow-Headers 'Content-Type, Authorization';
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin  *                                      always;
+            add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS'                   always;
+            add_header Access-Control-Allow-Headers 'Content-Type, Authorization'          always;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
+    }
+}
+# explorer.${DOMAIN} at ssl for port 6969
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name explorer.${DOMAIN};
+
+    ssl_certificate     /etc/nginx/ssl/live/explorer.${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/nginx/ssl/live/explorer.${DOMAIN}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    location / {
+        proxy_pass http://${EXPLORER_ORIGIN}/;   # trailing slash keeps URI after /lcd/
+        proxy_http_version          1.1;
+        proxy_set_header Host       $host;
+        proxy_set_header X-Real-IP  $remote_addr;
+        proxy_hide_header Access-Control-Allow-Origin;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        add_header Access-Control-Allow-Origin  *;
+        add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS';
+        add_header Access-Control-Allow-Headers 'Content-Type, Authorization';
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin  *                                       always;
+            add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS'                   always;
+            add_header Access-Control-Allow-Headers 'Content-Type, Authorization'          always;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
+    }
+}
+
+
+
+# zk-kyc.${DOMAIN} at ssl
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name zk-kyc.${DOMAIN};
+
+    ssl_certificate     /etc/nginx/ssl/live/zk-kyc.${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/nginx/ssl/live/zk-kyc.${DOMAIN}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    location / {
+        proxy_pass http://${ZKOS_KYC_HOST}/;  
+        proxy_http_version          1.1;
+        proxy_set_header Host       $host;
+        proxy_set_header X-Real-IP  $remote_addr;
+        proxy_hide_header Access-Control-Allow-Origin;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        add_header Access-Control-Allow-Origin  *;
+        add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS';
+        add_header Access-Control-Allow-Headers 'Content-Type, Authorization';
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin  *                                       always;
+            add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS'                   always;
+            add_header Access-Control-Allow-Headers 'Content-Type, Authorization'          always;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
+    }
+}

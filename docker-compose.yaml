@@ -1,0 +1,72 @@
+version: "3"
+
+services:
+  # nginx:
+  #   restart: always
+  #   container_name: nginx
+  #   hostname: nginx
+  #   image: nginx:latest
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./nginx/:/etc/nginx/conf.d/:ro
+  #     - ./certbot/www:/var/www/certbot/:ro
+  #     - ./certbot/conf/:/etc/nginx/ssl/:ro
+
+  # certbot:
+  #   image: certbot/certbot:latest
+  #   volumes:
+  #     - ./certbot/www/:/var/www/certbot/:rw
+  #     - ./certbot/conf/:/etc/letsencrypt/:rw
+  #   entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        DOCKER_BUILDKIT: 1
+    hostname: frontend
+    ports:
+      - 3000:3000
+
+
+  nginx:
+    build: ./nginx
+    restart: always
+    container_name: nginx
+    hostname: nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Required
+      DOMAIN: ${DOMAIN}
+
+      # Optional overrides (defaults provided in template)
+      EXPLORER_ORIGIN: ${EXPLORER_ORIGIN:-146.190.129.13:80}
+      LCD_HOST: ${LCD_HOST:-172.17.0.1:1317}
+      RPC_HOST: ${RPC_HOST:-172.17.0.1:26657}
+      FAUCET_HOST: ${FAUCET_HOST:-172.17.0.1:6969}
+      ZKOS_HOST: ${ZKOS_HOST:-172.17.0.1:3030}
+      ZKOS_KYC_HOST: ${ZKOS_KYC_HOST:-172.17.0.1:3001}
+      FRONTEND: ${FRONTEND:-172.17.0.1:3000}
+      WEB_BACKEND: ${WEB_BACKEND:-172.17.0.1:8088}
+      RELAYER_BACKEND: ${RELAYER_BACKEND:-172.17.0.1:3031}
+      ORDERAPI_BACKEND: ${ORDERAPI_BACKEND:-172.17.0.1:3032}
+      WS_BACKEND: ${WS_BACKEND:-172.17.0.1:8088}
+      AUTH_BACKEND: ${AUTH_BACKEND:-172.17.0.1:5000}
+
+    volumes:
+      - ./certbot/www:/var/www/certbot:ro
+      - ./certbot/conf:/etc/nginx/ssl:ro
+
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - ./certbot/www:/var/www/certbot:rw
+      - ./certbot/conf:/etc/letsencrypt:rw
+    entrypoint: >
+      /bin/sh -c 'trap exit TERM;
+      while :; do certbot renew; sleep 12h & wait $${!}; done;'

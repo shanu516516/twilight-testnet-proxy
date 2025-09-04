@@ -1,0 +1,113 @@
+map $http_upgrade $connection_upgrade {
+  default upgrade;
+  ''      close;
+}
+
+# ---- upstreams (parameterize if you like) ----
+upstream relayer     { server ${RELAYER_BACKEND}; }
+upstream orderapi    { server ${ORDERAPI_BACKEND};  }
+upstream auth        { server ${AUTH_BACKEND};       }
+upstream api         { server ${WEB_BACKEND};       }
+upstream ws          { server ${WS_BACKEND};        }
+
+# ---------- :80 redirectors ----------
+# relayer.${DOMAIN}
+server {
+  listen 80; listen [::]:80;
+  server_name relayer.${DOMAIN} www.relayer.${DOMAIN};
+  server_tokens off;
+  location /.well-known/acme-challenge/ { root /var/www/certbot; }
+  location / { return 301 https://relayer.${DOMAIN}$request_uri; }
+}
+
+# frontend.${DOMAIN}
+server {
+  listen 80; listen [::]:80;
+  server_name frontend.${DOMAIN} www.frontend.${DOMAIN};
+  server_tokens off;
+  location /.well-known/acme-challenge/ { root /var/www/certbot; }
+  location / { return 301 https://frontend.${DOMAIN}$request_uri; }
+}
+
+
+# lcd.${DOMAIN}
+server {
+    listen 80; listen [::]:80;
+    server_name lcd.${DOMAIN} www.lcd.${DOMAIN};
+    server_tokens off;
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://lcd.${DOMAIN}$request_uri;
+    }
+}
+
+# rpc.${DOMAIN}
+server {
+    listen 80; listen [::]:80;
+
+    server_name rpc.${DOMAIN} www.rpc.${DOMAIN};
+    server_tokens off;
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+    location / {
+        return 301 https://rpc.${DOMAIN}$request_uri;
+    }
+}
+
+# zkos.${DOMAIN}
+server {
+    listen 80; listen [::]:80;
+    server_name zkos.${DOMAIN} www.zkos.${DOMAIN};
+    server_tokens off;
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+    location / {
+        return 301 https://zkos.${DOMAIN}$request_uri;
+    }
+}
+
+# faucet.${DOMAIN}
+server {
+    listen 80; listen [::]:80;
+    server_name faucet.${DOMAIN} www.faucet.${DOMAIN};
+    server_tokens off;
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+    location / {
+        return 301 https://faucet.${DOMAIN}$request_uri;
+    }
+}
+
+# explorer.${DOMAIN}
+server {
+    listen 80; listen [::]:80;
+    server_name explorer.${DOMAIN} www.explorer.${DOMAIN};
+    server_tokens off;
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+    location / {
+        return 301 https://explorer.${DOMAIN}$request_uri;
+    }
+}
+
+
+# zk-kyc.${DOMAIN}
+server {
+    listen 80; listen [::]:80;
+    server_name zk-kyc.${DOMAIN} www.zk-kyc.${DOMAIN};
+    server_tokens off;
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+    location / {
+        return 301 https://zk-kyc.${DOMAIN}$request_uri;
+    }
+}
+
