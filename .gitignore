@@ -1,1 +1,5 @@
 certbot
+nginx/rust_decode_rpc/target/
+nginx/rust_decode_rpc/Cargo.lock
+frontend/.env.frontend
+nginx/nginx.conf_same_verti.template

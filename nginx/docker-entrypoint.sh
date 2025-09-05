@@ -21,6 +21,11 @@ set -eu
 
 # Ensure output dir exists
 mkdir -p /etc/nginx/conf.d
+# Check if SSL cert exists, if not force HTTP-only mode
+if [ ! -f "/etc/nginx/ssl/live/relayer.${DOMAIN}/fullchain.pem" ]; then
+  echo "SSL certificate not found, forcing HTTP-only mode"
+  BOOTSTRAP_HTTP_ONLY=1
+fi
 
 # Render template -> /etc/nginx/conf.d/default.conf
 TEMPLATE="/etc/nginx/templates/nginx.conf.template"
