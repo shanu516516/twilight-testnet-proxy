@@ -31,6 +31,15 @@ services:
     ports:
       - 3000:3000
 
+  decoder_rpc:
+    build: ./nginx/rust_decode_rpc
+    restart: always
+    container_name: decoder_rpc
+    hostname: decoder_rpc
+    ports:
+      - 8080:8080
+    environment:
+      VERIFIER_URL: ${VERIFIER_URL:-http://relayer.testnet.twilight.rest/whitelist}
 
   nginx:
     build: ./nginx
@@ -43,7 +52,6 @@ services:
     environment:
       # Required
       DOMAIN: ${DOMAIN}
-
       # Optional overrides (defaults provided in template)
       EXPLORER_ORIGIN: ${EXPLORER_ORIGIN:-146.190.129.13:80}
       LCD_HOST: ${LCD_HOST:-172.17.0.1:1317}
@@ -57,8 +65,8 @@ services:
       ORDERAPI_BACKEND: ${ORDERAPI_BACKEND:-172.17.0.1:3032}
       WS_BACKEND: ${WS_BACKEND:-172.17.0.1:8088}
       AUTH_BACKEND: ${AUTH_BACKEND:-172.17.0.1:5000}
-      VERIFIER_URL: ${VERIFIER_URL:-http://172.17.0.1:8080}
-
+      VERIFIER_URL: ${VERIFIER_URL:-https://relayer.testnet.twilight.rest/whitelist}
+      WHITELIST_HOST: ${WHITELIST_HOST:-decoder_rpc:8080}
     volumes:
       - ./certbot/www:/var/www/certbot:ro
       - ./certbot/conf:/etc/nginx/ssl:ro

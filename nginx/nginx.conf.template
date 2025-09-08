@@ -1,5 +1,6 @@
 # (http context)
 # load_module modules/ngx_http_js_module.so;
+error_log /dev/stderr info;
 map $http_upgrade $connection_upgrade {
   default upgrade;
   ''      close;
@@ -10,7 +11,7 @@ client_body_buffer_size 128k;
 resolver 1.1.1.1 1.0.0.1 valid=300s ipv6=off;
 js_path /etc/nginx/njs;
 js_import verify from verify.js;
-map "" $njs_debug { default "${NJS_DEBUG}"; }
+map "" $njs_debug { default "1"; }
 # Vars used by verify.js
 # - Set VERIFIER_URL in your env (e.g., http://verifier:8080)
 # - RPC_UPSTREAM_URL will be derived from ${RPC_HOST}; NO trailing slash
@@ -23,6 +24,7 @@ upstream orderapi    { server ${ORDERAPI_BACKEND};  }
 upstream auth        { server ${AUTH_BACKEND};       }
 upstream api         { server ${WEB_BACKEND};       }
 upstream ws          { server ${WS_BACKEND};        }
+upstream whitelist   { server ${WHITELIST_HOST};    }
 
 # ---------- :80 redirectors ----------
 # relayer.${DOMAIN}
@@ -112,6 +114,16 @@ server {
 
   location /relayer   { proxy_pass http://relayer; }
   location /clientapi { proxy_pass http://orderapi; }
+  location /whitelist { 
+    proxy_pass http://whitelist;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    add_header Access-Control-Allow-Origin *;
+    add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS';
+    add_header Access-Control-Allow-Headers 'Content-Type, Authorization';
+  }
 
   location /ws {
     proxy_pass http://ws;
@@ -180,49 +192,106 @@ server {
 #   }
 # }
 
-# ---------- rpc.${DOMAIN} :443 (26657 + WS) ----------
+# # ---------- rpc.${DOMAIN} :443 (26657 + WS) ----------
+# server {
+#   listen 443 ssl; listen [::]:443 ssl;
+#   server_name rpc.${DOMAIN};
+#   ssl_certificate     /etc/nginx/ssl/live/rpc.${DOMAIN}/fullchain.pem;
+#   ssl_certificate_key /etc/nginx/ssl/live/rpc.${DOMAIN}/privkey.pem;
+#   # INTERNAL endpoint the njs script will subrequest to
+#   # Proxies to your verifier (full URL provided via $verifier_url)
+#   location = /__verifier {
+#     internal;
+#     proxy_pass $verifier_url;                    # e.g., http://verifier:8080
+#     proxy_set_header Content-Type application/json;
+#     proxy_pass_request_headers off;              # njs sets minimal headers
+#   }
+
+#   # SINGLE PUBLIC ROUTE (same as before), but now we gate in access phase
+#   location / {
+#     # njs gate (no fetch; only subrequest to /__verifier)
+#     js_content verify.access;
+
+#     proxy_pass http://${RPC_HOST};               # preserve path+query
+#     proxy_http_version 1.1;
+
+#     # WebSocket support
+#     proxy_set_header Upgrade    $http_upgrade;
+#     proxy_set_header Connection $connection_upgrade;
+#     proxy_read_timeout 60s;
+
+#     # CORS (keep your current behavior)
+#     if ($request_method = OPTIONS) {
+#       add_header Access-Control-Allow-Origin  * always;
+#       add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS' always;
+#       add_header Access-Control-Allow-Headers 'Content-Type, Authorization' always;
+#       add_header Content-Length 0;
+#       add_header Content-Type text/plain;
+#       return 204;
+#     }
+#     # add_header Access-Control-Allow-Origin  * always;
+#     add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS' always;
+#     add_header Access-Control-Allow-Headers 'Content-Type, Authorization' always;
+#   }
+# }
+
 server {
   listen 443 ssl; listen [::]:443 ssl;
   server_name rpc.${DOMAIN};
   ssl_certificate     /etc/nginx/ssl/live/rpc.${DOMAIN}/fullchain.pem;
   ssl_certificate_key /etc/nginx/ssl/live/rpc.${DOMAIN}/privkey.pem;
-  # INTERNAL endpoint the njs script will subrequest to
-  # Proxies to your verifier (full URL provided via $verifier_url)
+
+  # INTERNAL: njs subrequest target that calls your verifier service
+  # IMPORTANT: set VERIFIER_URL env to FULL URL (e.g., http://verifier:8080/whitelist/status)
   location = /__verifier {
     internal;
-    proxy_pass $verifier_url;                    # e.g., http://verifier:8080
+    # proxy_pass $verifier_url;                    # e.g., http://verifier:8080/whitelist/status
+    # proxy_set_header Content-Type application/json;
+    # proxy_pass_request_headers off;
+
+    proxy_pass $verifier_url;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host $proxy_host;
     proxy_set_header Content-Type application/json;
-    proxy_pass_request_headers off;              # njs sets minimal headers
+    proxy_set_header Connection "";            # avoid "Connection: keep-alive" quirks
+    proxy_connect_timeout 2s;
+    proxy_read_timeout 5s;
+
+    # Ensure dynamic DNS works for proxy_pass variable (can also be at http{} – you already have it there)
+    resolver 1.1.1.1 1.0.0.1 valid=300s ipv6=off;
+
+    # If $verifier_url is HTTPS with a hostname, turn on SNI:
+    proxy_ssl_server_name on;
+
   }
 
-  # SINGLE PUBLIC ROUTE (same as before), but now we gate in access phase
-  location / {
-    # njs gate (no fetch; only subrequest to /__verifier)
-    js_content verify.access;
-
-    proxy_pass http://${RPC_HOST};               # preserve path+query
+  # INTERNAL: actual upstream pass-through. Named location keeps original URI.
+  location @up {
+    proxy_pass http://${RPC_HOST};               # no URI part → preserves original path+query
     proxy_http_version 1.1;
 
-    # WebSocket support
+    # WS support
     proxy_set_header Upgrade    $http_upgrade;
     proxy_set_header Connection $connection_upgrade;
     proxy_read_timeout 60s;
 
-    # CORS (keep your current behavior)
-    if ($request_method = OPTIONS) {
-      add_header Access-Control-Allow-Origin  * always;
-      add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS' always;
-      add_header Access-Control-Allow-Headers 'Content-Type, Authorization' always;
-      add_header Content-Length 0;
-      add_header Content-Type text/plain;
-      return 204;
-    }
-    # add_header Access-Control-Allow-Origin  * always;
-    add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS' always;
-    add_header Access-Control-Allow-Headers 'Content-Type, Authorization' always;
+    # Avoid duplicate CORS from upstream
+    proxy_hide_header Access-Control-Allow-Origin;
+    proxy_hide_header Access-Control-Allow-Methods;
+    proxy_hide_header Access-Control-Allow-Headers;
+
+    # Our single CORS set on ALL responses (incl. 4xx/5xx/101)
+    add_header Access-Control-Allow-Origin  *                                  always;
+    add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS'               always;
+    add_header Access-Control-Allow-Headers 'Content-Type, Authorization'      always;
+  }
+
+  # PUBLIC: single route. njs does gating, then jumps to @up if allowed.
+  location / {
+    js_content verify.access;   # <— use js_content, not js_access
   }
 }
-
 
 # ---------- frontend.${DOMAIN} -> frontend ----------
 server {

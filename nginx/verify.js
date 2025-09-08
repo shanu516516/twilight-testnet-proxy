@@ -80,6 +80,14 @@ async function readBodySafe(r) {
   }
   return body;
 }
+function subreqBody(res) {
+  // Some njs builds expose responseBody, others responseText
+  if (res && res.responseBody && res.responseBody.length)
+    return res.responseBody;
+  if (res && res.responseText && res.responseText.length)
+    return res.responseText;
+  return "";
+}
 
 // Call verifier via subrequest to internal location /__verifier
 async function verifyViaSubrequest(r, payload) {
@@ -102,8 +110,12 @@ async function verifyViaSubrequest(r, payload) {
     return { ok: false, verified: false, address: "" };
   }
   try {
-    var o = JSON.parse(res.responseBody || "");
+    var body = subreqBody(res);
+    var o = JSON.parse(body || "");
     var resObj = o && o.result ? o.result : o;
+    dbg(r, "verifyViaSubrequest: resObj=" + JSON.stringify(resObj));
+    dbg(r, "verifyViaSubrequest: resObj.verified=" + resObj.verified);
+    dbg(r, "verifyViaSubrequest: resObj.address=" + resObj.address);
     var v = !!(resObj && resObj.verified === true);
     var addr = resObj && resObj.address ? resObj.address : "";
     dbg(r, "verifyViaSubrequest: parsed verified=" + v + " address=" + addr);

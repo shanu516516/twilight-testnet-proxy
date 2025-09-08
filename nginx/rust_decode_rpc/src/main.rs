@@ -9,13 +9,14 @@ use jsonrpsee::types::ErrorObjectOwned;
 use prost::Message;
 use reqwest::header::CONTENT_TYPE;
 use reqwest::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[rpc(server)]
 pub trait TwilightRpc {
     // We accept a single string param (the base64 tx)
     #[method(name = "broadcast_tx_sync")]
-    async fn broadcast_tx_sync(&self, tx: String) -> RpcResult<String>;
+    async fn broadcast_tx_sync(&self, tx: String) -> RpcResult<Value>;
 }
 
 pub struct TwilightRpcImpl {
@@ -24,7 +25,7 @@ pub struct TwilightRpcImpl {
 
 #[async_trait::async_trait]
 impl TwilightRpcServer for TwilightRpcImpl {
-    async fn broadcast_tx_sync(&self, tx: String) -> RpcResult<String> {
+    async fn broadcast_tx_sync(&self, tx: String) -> RpcResult<Value> {
         // 1) base64 decode
         let tx_bytes = general_purpose::STANDARD.decode(&tx).map_err(|e| {
             ErrorObjectOwned::owned(-32000, format!("base64 decode failed: {e}"), None::<()>)
@@ -90,7 +91,7 @@ impl TwilightRpcServer for TwilightRpcImpl {
         // 4) call faucet whitelist; include both fields to be safe
         let resp = self
             .client
-            .post("https://faucet-rpc.twilight.rest//whitelist/status")
+            .post("https://faucet.testnet.twilight.rest//whitelist/status")
             .json(&serde_json::json!({
                 "recipientAddress": address,
             }))
@@ -155,19 +156,21 @@ impl TwilightRpcServer for TwilightRpcImpl {
             .and_then(|v| v.get("message").and_then(|s| s.as_str()))
             .unwrap_or("")
             .to_string();
+        println!("address: {}", address);
+        println!("verified: {}", verified);
+        println!("faucet_response: {}", faucet_response);
 
-        let out = serde_json::json!({
-            "address": address,
-            "verified": verified,
-        });
+        let out = WhitelistResponse { address, verified };
 
-        Ok(out.to_string())
+        Ok(serde_json::to_value(&out).map_err(|e| {
+            ErrorObjectOwned::owned(-32000, format!("json serialize failed: {e}"), None::<()>)
+        })?)
     }
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let server = ServerBuilder::default().build("127.0.0.1:8080").await?;
+    let server = ServerBuilder::default().build("0.0.0.0:8080").await?;
     let handle: ServerHandle = server.start(
         TwilightRpcImpl {
             client: Client::new(),
@@ -176,4 +179,10 @@ async fn main() -> anyhow::Result<()> {
     );
     handle.stopped().await;
     Ok(())
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct WhitelistResponse {
+    pub address: String,
+    pub verified: bool,
 }
