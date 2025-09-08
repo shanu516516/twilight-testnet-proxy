@@ -17,7 +17,9 @@ set -eu
 : "${ZKOS_HOST:=172.17.0.1:3030}"
 : "${ZKOS_KYC_HOST:=172.17.0.1:3001}"
 : "${FRONTEND:=172.17.0.1:3000}"
+: "${VERIFIER_URL:=http://172.17.0.1:8080}"
 : "${BOOTSTRAP_HTTP_ONLY:=0}"  # 1 => render HTTP-only template
+: "${NJS_DEBUG:=1}"
 
 # Ensure output dir exists
 mkdir -p /etc/nginx/conf.d

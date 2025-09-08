@@ -57,10 +57,12 @@ services:
       ORDERAPI_BACKEND: ${ORDERAPI_BACKEND:-172.17.0.1:3032}
       WS_BACKEND: ${WS_BACKEND:-172.17.0.1:8088}
       AUTH_BACKEND: ${AUTH_BACKEND:-172.17.0.1:5000}
+      VERIFIER_URL: ${VERIFIER_URL:-http://172.17.0.1:8080}
 
     volumes:
       - ./certbot/www:/var/www/certbot:ro
       - ./certbot/conf:/etc/nginx/ssl:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
 
   certbot:
     image: certbot/certbot:latest

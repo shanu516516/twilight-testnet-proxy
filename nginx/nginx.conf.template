@@ -1,7 +1,21 @@
+# (http context)
+# load_module modules/ngx_http_js_module.so;
 map $http_upgrade $connection_upgrade {
   default upgrade;
   ''      close;
 }
+client_max_body_size 10m;
+client_body_buffer_size 128k;
+# ---- njs & resolver (for ngx.fetch and verify.js) ----
+resolver 1.1.1.1 1.0.0.1 valid=300s ipv6=off;
+js_path /etc/nginx/njs;
+js_import verify from verify.js;
+map "" $njs_debug { default "${NJS_DEBUG}"; }
+# Vars used by verify.js
+# - Set VERIFIER_URL in your env (e.g., http://verifier:8080)
+# - RPC_UPSTREAM_URL will be derived from ${RPC_HOST}; NO trailing slash
+map "" $verifier_url     { default "${VERIFIER_URL}"; }
+map "" $rpc_upstream_url { default "http://${RPC_HOST}"; }
 
 # ---- upstreams (parameterize if you like) ----
 upstream relayer     { server ${RELAYER_BACKEND}; }
@@ -29,7 +43,6 @@ server {
   location / { return 301 https://frontend.${DOMAIN}$request_uri; }
 }
 
-
 # lcd.${DOMAIN}
 server {
     listen 80; listen [::]:80;
@@ -38,7 +51,6 @@ server {
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
     }
-
     location / {
         return 301 https://lcd.${DOMAIN}$request_uri;
     }
@@ -47,15 +59,10 @@ server {
 # rpc.${DOMAIN}
 server {
     listen 80; listen [::]:80;
-
     server_name rpc.${DOMAIN} www.rpc.${DOMAIN};
     server_tokens off;
-    location /.well-known/acme-challenge/ {
-        root /var/www/certbot;
-    }
-    location / {
-        return 301 https://rpc.${DOMAIN}$request_uri;
-    }
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 301 https://rpc.${DOMAIN}$request_uri; }
 }
 
 # zkos.${DOMAIN}
@@ -63,12 +70,8 @@ server {
     listen 80; listen [::]:80;
     server_name zkos.${DOMAIN} www.zkos.${DOMAIN};
     server_tokens off;
-    location /.well-known/acme-challenge/ {
-        root /var/www/certbot;
-    }
-    location / {
-        return 301 https://zkos.${DOMAIN}$request_uri;
-    }
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 301 https://zkos.${DOMAIN}$request_uri; }
 }
 
 # faucet.${DOMAIN}
@@ -76,12 +79,8 @@ server {
     listen 80; listen [::]:80;
     server_name faucet.${DOMAIN} www.faucet.${DOMAIN};
     server_tokens off;
-    location /.well-known/acme-challenge/ {
-        root /var/www/certbot;
-    }
-    location / {
-        return 301 https://faucet.${DOMAIN}$request_uri;
-    }
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 301 https://faucet.${DOMAIN}$request_uri; }
 }
 
 # explorer.${DOMAIN}
@@ -89,33 +88,23 @@ server {
     listen 80; listen [::]:80;
     server_name explorer.${DOMAIN} www.explorer.${DOMAIN};
     server_tokens off;
-    location /.well-known/acme-challenge/ {
-        root /var/www/certbot;
-    }
-    location / {
-        return 301 https://explorer.${DOMAIN}$request_uri;
-    }
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 301 https://explorer.${DOMAIN}$request_uri; }
 }
-
 
 # zk-kyc.${DOMAIN}
 server {
     listen 80; listen [::]:80;
     server_name zk-kyc.${DOMAIN} www.zk-kyc.${DOMAIN};
     server_tokens off;
-    location /.well-known/acme-challenge/ {
-        root /var/www/certbot;
-    }
-    location / {
-        return 301 https://zk-kyc.${DOMAIN}$request_uri;
-    }
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 301 https://zk-kyc.${DOMAIN}$request_uri; }
 }
-
-
 
 # ---------- relayer.${DOMAIN} :443 ----------
 server {
-  listen 443 ssl http2; listen [::]:443 ssl http2;
+  listen 443 ssl; listen [::]:443 ssl;
+  http2 on;
   server_name relayer.${DOMAIN};
 
   ssl_certificate     /etc/nginx/ssl/live/relayer.${DOMAIN}/fullchain.pem;
@@ -163,19 +152,63 @@ server {
 }
 
 # ---------- rpc.${DOMAIN} :443 (26657 + WS) ----------
+# server {
+#   listen 443 ssl; listen [::]:443 ssl;
+#   server_name rpc.${DOMAIN};
+#   ssl_certificate     /etc/nginx/ssl/live/rpc.${DOMAIN}/fullchain.pem;
+#   ssl_certificate_key /etc/nginx/ssl/live/rpc.${DOMAIN}/privkey.pem;
+
+#   # SINGLE PUBLIC ROUTE: all traffic gated by verify.js on '/'
+#   location / {
+#     js_content verify.rpc;  # handles CORS, gating, and forwarding (preserves path+query)
+#   }
+
+#   # Internal-only WebSocket passthrough (verify.js redirects here on Upgrade)
+#   location  /__ws_internal__  {
+#     internal;
+#     proxy_pass http://${RPC_HOST}/websocket;
+#     proxy_http_version 1.1;
+
+#     proxy_set_header Upgrade    $http_upgrade;
+#     proxy_set_header Connection "upgrade";
+#     proxy_read_timeout 60s;
+
+#     # Optional CORS for WS responses
+#     add_header Access-Control-Allow-Origin  *       always;
+#     add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS' always;
+#     add_header Access-Control-Allow-Headers 'Content-Type, Authorization' always;
+#   }
+# }
+
+# ---------- rpc.${DOMAIN} :443 (26657 + WS) ----------
 server {
   listen 443 ssl; listen [::]:443 ssl;
   server_name rpc.${DOMAIN};
   ssl_certificate     /etc/nginx/ssl/live/rpc.${DOMAIN}/fullchain.pem;
   ssl_certificate_key /etc/nginx/ssl/live/rpc.${DOMAIN}/privkey.pem;
+  # INTERNAL endpoint the njs script will subrequest to
+  # Proxies to your verifier (full URL provided via $verifier_url)
+  location = /__verifier {
+    internal;
+    proxy_pass $verifier_url;                    # e.g., http://verifier:8080
+    proxy_set_header Content-Type application/json;
+    proxy_pass_request_headers off;              # njs sets minimal headers
+  }
 
+  # SINGLE PUBLIC ROUTE (same as before), but now we gate in access phase
   location / {
-    proxy_pass http://${RPC_HOST}/;
+    # njs gate (no fetch; only subrequest to /__verifier)
+    js_content verify.access;
+
+    proxy_pass http://${RPC_HOST};               # preserve path+query
     proxy_http_version 1.1;
+
+    # WebSocket support
     proxy_set_header Upgrade    $http_upgrade;
-    proxy_set_header Connection "upgrade";
+    proxy_set_header Connection $connection_upgrade;
     proxy_read_timeout 60s;
 
+    # CORS (keep your current behavior)
     if ($request_method = OPTIONS) {
       add_header Access-Control-Allow-Origin  * always;
       add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS' always;
@@ -184,10 +217,12 @@ server {
       add_header Content-Type text/plain;
       return 204;
     }
+    # add_header Access-Control-Allow-Origin  * always;
     add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS' always;
     add_header Access-Control-Allow-Headers 'Content-Type, Authorization' always;
   }
 }
+
 
 # ---------- frontend.${DOMAIN} -> frontend ----------
 server {
@@ -213,10 +248,9 @@ server {
   }
 }
 
-# zkos server at ssl
+# zkos.${DOMAIN} :443
 server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
+    listen 443 ssl; listen [::]:443 ssl;
     server_name zkos.${DOMAIN};
 
     ssl_certificate     /etc/nginx/ssl/live/zkos.${DOMAIN}/fullchain.pem;
@@ -224,23 +258,21 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
 
-
     location / {
       proxy_pass http://${ZKOS_HOST};
     }
-
 }
 
-# faucet.${DOMAIN} at ssl for port 6969
+# faucet.${DOMAIN} :443 (6969)
 server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
+    listen 443 ssl; listen [::]:443 ssl;
     server_name faucet.${DOMAIN};
 
     ssl_certificate     /etc/nginx/ssl/live/faucet.${DOMAIN}/fullchain.pem;
     ssl_certificate_key /etc/nginx/ssl/live/faucet.${DOMAIN}/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
+
     location / {
         proxy_pass http://${FAUCET_HOST}/;
         proxy_http_version          1.1;
@@ -261,18 +293,19 @@ server {
         }
     }
 }
-# explorer.${DOMAIN} at ssl for port 6969
+
+# explorer.${DOMAIN} :443
 server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
+    listen 443 ssl; listen [::]:443 ssl;
     server_name explorer.${DOMAIN};
 
     ssl_certificate     /etc/nginx/ssl/live/explorer.${DOMAIN}/fullchain.pem;
     ssl_certificate_key /etc/nginx/ssl/live/explorer.${DOMAIN}/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
+
     location / {
-        proxy_pass http://${EXPLORER_ORIGIN}/;   # trailing slash keeps URI after /lcd/
+        proxy_pass http://${EXPLORER_ORIGIN}/;
         proxy_http_version          1.1;
         proxy_set_header Host       $host;
         proxy_set_header X-Real-IP  $remote_addr;
@@ -292,18 +325,16 @@ server {
     }
 }
 
-
-
-# zk-kyc.${DOMAIN} at ssl
+# zk-kyc.${DOMAIN} :443
 server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
+    listen 443 ssl; listen [::]:443 ssl;
     server_name zk-kyc.${DOMAIN};
 
     ssl_certificate     /etc/nginx/ssl/live/zk-kyc.${DOMAIN}/fullchain.pem;
     ssl_certificate_key /etc/nginx/ssl/live/zk-kyc.${DOMAIN}/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
+
     location / {
         proxy_pass http://${ZKOS_KYC_HOST}/;  
         proxy_http_version          1.1;
