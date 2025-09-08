@@ -235,63 +235,177 @@ server {
 #   }
 # }
 
+# server {
+#   listen 443 ssl; listen [::]:443 ssl;
+#   server_name rpc.${DOMAIN};
+#   ssl_certificate     /etc/nginx/ssl/live/rpc.${DOMAIN}/fullchain.pem;
+#   ssl_certificate_key /etc/nginx/ssl/live/rpc.${DOMAIN}/privkey.pem;
+
+#   # INTERNAL: njs subrequest target that calls your verifier service
+#   # IMPORTANT: set VERIFIER_URL env to FULL URL (e.g., http://verifier:8080/whitelist/status)
+#   location = /__verifier {
+#     internal;
+#     # proxy_pass $verifier_url;                    # e.g., http://verifier:8080/whitelist/status
+#     # proxy_set_header Content-Type application/json;
+#     # proxy_pass_request_headers off;
+
+#     proxy_pass $verifier_url;
+
+#     proxy_http_version 1.1;
+#     proxy_set_header Host $proxy_host;
+#     proxy_set_header Content-Type application/json;
+#     proxy_set_header Connection "";            # avoid "Connection: keep-alive" quirks
+#     proxy_connect_timeout 2s;
+#     proxy_read_timeout 5s;
+
+#     # Ensure dynamic DNS works for proxy_pass variable (can also be at http{} – you already have it there)
+#     resolver 1.1.1.1 1.0.0.1 valid=300s ipv6=off;
+
+#     # If $verifier_url is HTTPS with a hostname, turn on SNI:
+#     proxy_ssl_server_name on;
+
+#   }
+
+#   # INTERNAL: actual upstream pass-through. Named location keeps original URI.
+#   location @up {
+#     proxy_pass http://${RPC_HOST};               # no URI part → preserves original path+query
+#     proxy_http_version 1.1;
+
+#     # WS support
+#     proxy_set_header Upgrade    $http_upgrade;
+#     proxy_set_header Connection $connection_upgrade;
+#     proxy_read_timeout 60s;
+
+#     # Avoid duplicate CORS from upstream
+#     proxy_hide_header Access-Control-Allow-Origin;
+#     proxy_hide_header Access-Control-Allow-Methods;
+#     proxy_hide_header Access-Control-Allow-Headers;
+
+#     # Our single CORS set on ALL responses (incl. 4xx/5xx/101)
+#     add_header Access-Control-Allow-Origin  *                                  always;
+#     add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS'               always;
+#     add_header Access-Control-Allow-Headers 'Content-Type, Authorization'      always;
+#   }
+
+#   # PUBLIC: single route. njs does gating, then jumps to @up if allowed.
+#   location / {
+#     js_content verify.access;   # <— use js_content, not js_access
+#   }
+# }
+
+# server {
+#   listen 443 ssl; listen [::]:443 ssl;
+#   server_name rpc.${DOMAIN};
+#   ssl_certificate     /etc/nginx/ssl/live/rpc.${DOMAIN}/fullchain.pem;
+#   ssl_certificate_key /etc/nginx/ssl/live/rpc.${DOMAIN}/privkey.pem;
+
+#   # 1) internal verifier (whitelist check)
+#   location = /__verifier {
+#     internal;
+#     proxy_pass $verifier_url;          # e.g., http://faucet:6969/whitelist/status
+#     proxy_http_version 1.1;
+#     proxy_set_header Host $proxy_host;
+#     proxy_set_header Content-Type application/json;
+#     proxy_set_header Connection "";
+#     proxy_connect_timeout 2s;
+#     proxy_read_timeout 5s;
+#     resolver 1.1.1.1 1.0.0.1 valid=300s ipv6=off;
+#     proxy_ssl_server_name on;
+#   }
+
+#   # 2) internal RPC proxy that preserves original path+query
+#   #    njs will call: /__upstream<original_path_and_query>
+#   location ~ ^/__upstream(?<uuri>/.*)$ {
+#     internal;
+#     proxy_pass http://${RPC_HOST}$uuri$is_args$args;
+#     proxy_http_version 1.1;
+#     proxy_set_header Host            $proxy_host;
+#     proxy_set_header Content-Type    $http_content_type;
+#     proxy_set_header X-Real-IP       $remote_addr;
+#     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#     proxy_read_timeout 60s;
+
+#     # avoid duplicate CORS from upstream; njs sets our own
+#     proxy_hide_header Access-Control-Allow-Origin;
+#     proxy_hide_header Access-Control-Allow-Methods;
+#     proxy_hide_header Access-Control-Allow-Headers;
+#   }
+
+#   # 3) named location ONLY for WebSocket upgrades
+#   location @up {
+#     proxy_pass http://${RPC_HOST};
+#     proxy_http_version 1.1;
+#     proxy_set_header Upgrade    $http_upgrade;
+#     proxy_set_header Connection $connection_upgrade;
+#     proxy_read_timeout 60s;
+
+#     # WS replies don’t need extra CORS; OK if you keep them hidden too
+#     proxy_hide_header Access-Control-Allow-Origin;
+#     proxy_hide_header Access-Control-Allow-Methods;
+#     proxy_hide_header Access-Control-Allow-Headers;
+#   }
+
+#   # 4) SINGLE public route — njs gates, then proxies via /__upstream
+#   location / {
+#     js_content verify.entry;
+#   }
+# }
 server {
   listen 443 ssl; listen [::]:443 ssl;
   server_name rpc.${DOMAIN};
   ssl_certificate     /etc/nginx/ssl/live/rpc.${DOMAIN}/fullchain.pem;
   ssl_certificate_key /etc/nginx/ssl/live/rpc.${DOMAIN}/privkey.pem;
 
-  # INTERNAL: njs subrequest target that calls your verifier service
-  # IMPORTANT: set VERIFIER_URL env to FULL URL (e.g., http://verifier:8080/whitelist/status)
+  # 1) internal: verifier (whitelist)
   location = /__verifier {
     internal;
-    # proxy_pass $verifier_url;                    # e.g., http://verifier:8080/whitelist/status
-    # proxy_set_header Content-Type application/json;
-    # proxy_pass_request_headers off;
-
-    proxy_pass $verifier_url;
-
+    proxy_pass $verifier_url;   # e.g., http://faucet:6969/whitelist/status
     proxy_http_version 1.1;
     proxy_set_header Host $proxy_host;
     proxy_set_header Content-Type application/json;
-    proxy_set_header Connection "";            # avoid "Connection: keep-alive" quirks
+    proxy_set_header Connection "";
     proxy_connect_timeout 2s;
     proxy_read_timeout 5s;
-
-    # Ensure dynamic DNS works for proxy_pass variable (can also be at http{} – you already have it there)
     resolver 1.1.1.1 1.0.0.1 valid=300s ipv6=off;
-
-    # If $verifier_url is HTTPS with a hostname, turn on SNI:
     proxy_ssl_server_name on;
-
   }
 
-  # INTERNAL: actual upstream pass-through. Named location keeps original URI.
-  location @up {
-    proxy_pass http://${RPC_HOST};               # no URI part → preserves original path+query
+  # 2) internal: actual upstream pass-through; preserves path+query
+  location ~ ^/__upstream(?<uuri>/.*)$ {
+    internal;
+    proxy_pass http://${RPC_HOST}$uuri$is_args$args;
     proxy_http_version 1.1;
+    proxy_set_header Host            $proxy_host;
+    proxy_set_header Content-Type    $http_content_type;
+    proxy_set_header X-Real-IP       $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_read_timeout 60s;
 
-    # WS support
+    # Avoid duplicate CORS from upstream (njs will set our own)
+    proxy_hide_header Access-Control-Allow-Origin;
+    proxy_hide_header Access-Control-Allow-Methods;
+    proxy_hide_header Access-Control-Allow-Headers;
+  }
+
+  # 3) named location ONLY for WebSocket upgrades
+  location @up {
+    proxy_pass http://${RPC_HOST};
+    proxy_http_version 1.1;
     proxy_set_header Upgrade    $http_upgrade;
     proxy_set_header Connection $connection_upgrade;
     proxy_read_timeout 60s;
 
-    # Avoid duplicate CORS from upstream
     proxy_hide_header Access-Control-Allow-Origin;
     proxy_hide_header Access-Control-Allow-Methods;
     proxy_hide_header Access-Control-Allow-Headers;
-
-    # Our single CORS set on ALL responses (incl. 4xx/5xx/101)
-    add_header Access-Control-Allow-Origin  *                                  always;
-    add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS'               always;
-    add_header Access-Control-Allow-Headers 'Content-Type, Authorization'      always;
   }
 
-  # PUBLIC: single route. njs does gating, then jumps to @up if allowed.
+  # 4) single public route — handled entirely by njs
   location / {
-    js_content verify.access;   # <— use js_content, not js_access
+    js_content verify.entry;
   }
 }
+
 
 # ---------- frontend.${DOMAIN} -> frontend ----------
 server {
