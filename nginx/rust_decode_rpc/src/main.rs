@@ -7,7 +7,7 @@ use jsonrpsee::proc_macros::rpc;
 use jsonrpsee::server::{ServerBuilder, ServerHandle};
 use jsonrpsee::types::ErrorObjectOwned;
 use prost::Message;
-use reqwest::header::CONTENT_TYPE;
+// use reqwest::header::CONTENT_TYPE;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -89,9 +89,11 @@ impl TwilightRpcServer for TwilightRpcImpl {
             .to_string();
 
         // 4) call faucet whitelist; include both fields to be safe
+        let faucet_url =
+            std::env::var("FAUCET_HOST").unwrap_or("http://172.17.0.1:6969".to_string());
         let resp = self
             .client
-            .post("https://faucet.testnet.twilight.rest//whitelist/status")
+            .post(format!("{}/whitelist/status", faucet_url))
             .json(&serde_json::json!({
                 "recipientAddress": address,
             }))
@@ -141,24 +143,24 @@ impl TwilightRpcServer for TwilightRpcImpl {
                 && (t.contains("ok") || t.contains("true") || t.contains("whitelist"))
         };
 
-        let faucet_response = parsed_json.clone().unwrap_or_else(
-            || serde_json::json!({ "raw": body_text, "status": status_code.as_u16() }),
-        );
+        // let _faucet_response = parsed_json.clone().unwrap_or_else(
+        //     || serde_json::json!({ "raw": body_text, "status": status_code.as_u16() }),
+        // );
 
         // Extract server-reported address and message if present
-        let server_address = parsed_json
-            .as_ref()
-            .and_then(|v| v.pointer("/data/address").and_then(|s| s.as_str()))
-            .unwrap_or("")
-            .to_string();
-        let server_message = parsed_json
-            .as_ref()
-            .and_then(|v| v.get("message").and_then(|s| s.as_str()))
-            .unwrap_or("")
-            .to_string();
-        println!("address: {}", address);
-        println!("verified: {}", verified);
-        println!("faucet_response: {}", faucet_response);
+        // let _server_address = parsed_json
+        //     .as_ref()
+        //     .and_then(|v| v.pointer("/data/address").and_then(|s| s.as_str()))
+        //     .unwrap_or("")
+        //     .to_string();
+        // let server_message = parsed_json
+        //     .as_ref()
+        //     .and_then(|v| v.get("message").and_then(|s| s.as_str()))
+        //     .unwrap_or("")
+        //     .to_string();
+        // println!("address: {}", address);
+        // println!("verified: {}", verified);
+        // println!("faucet_response: {}", faucet_response);
 
         let out = WhitelistResponse { address, verified };
 
@@ -170,6 +172,7 @@ impl TwilightRpcServer for TwilightRpcImpl {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    dotenv::dotenv().ok();
     let server = ServerBuilder::default().build("0.0.0.0:8080").await?;
     let handle: ServerHandle = server.start(
         TwilightRpcImpl {

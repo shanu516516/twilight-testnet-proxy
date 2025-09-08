@@ -8,7 +8,8 @@ RUN USER=root apt-get update && \
 
 
 WORKDIR /decoder_rpc
-COPY . .
+COPY ./src ./src
+COPY Cargo.toml ./Cargo.toml
 RUN cargo build --release
 
 
@@ -17,5 +18,6 @@ RUN apt-get update && apt-get install -y ca-certificates curl libpq-dev libssl-d
 
 WORKDIR /app
 COPY --from=builder ./decoder_rpc/target/release/twilight-rpc-decoder ./
+COPY .env .env
 EXPOSE 8080
 ENTRYPOINT ["/app/twilight-rpc-decoder"]

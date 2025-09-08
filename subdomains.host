@@ -1,0 +1,23 @@
+Subdomain TTL RECORD_TYPE SERVER_IP 
+
+rpc.testnet 300s A <server_ip>
+lcd.testnet 300s A <server_ip>
+faucet.testnet 300s A <server_ip>
+relayer.testnet 300s A <server_ip>
+zkos.testnet 300s A <server_ip>
+explorer.testnet 300s A <server_ip>
+frontend.testnet 300s A <server_ip>
+tx-submit.testnet 300s A <server_ip>
+zk-kyc.testnet 300s A <server_ip>
+
+
+
+rpc.testnet.example.com 300s A <server_ip>
+lcd.testnet.example.com 300s A <server_ip>
+faucet.testnet.example.com 300s A <server_ip>
+relayer.testnet.example.com 300s A <server_ip>
+zkos.testnet.example.com 300s A <server_ip>
+explorer.testnet.example.com 300s A <server_ip>
+frontend.testnet.example.com 300s A <server_ip>
+tx-submit.testnet.example.com 300s A <server_ip>
+zk-kyc.testnet.example.com 300s A <server_ip>

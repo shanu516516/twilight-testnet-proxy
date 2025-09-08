@@ -17,7 +17,8 @@ set -eu
 : "${ZKOS_HOST:=172.17.0.1:3030}"
 : "${ZKOS_KYC_HOST:=172.17.0.1:3001}"
 : "${FRONTEND:=172.17.0.1:3000}"
-: "${VERIFIER_URL:=http://172.17.0.1:8080}"
+: "${VERIFIER_URL:=172.17.0.1:8080}"
+: "${WHITELIST_HOST:=172.17.0.1:8080}"
 : "${BOOTSTRAP_HTTP_ONLY:=0}"  # 1 => render HTTP-only template
 : "${NJS_DEBUG:=1}"
 
@@ -50,6 +51,9 @@ envsubst '
   $ZKOS_HOST
   $ZKOS_KYC_HOST
   $FRONTEND
+  $VERIFIER_URL
+  $WHITELIST_HOST
+  $NJS_DEBUG
 ' < "$TEMPLATE" > /etc/nginx/conf.d/default.conf
 
 # Validate config (fails fast if something's off)

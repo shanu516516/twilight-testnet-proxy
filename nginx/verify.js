@@ -4,29 +4,17 @@ function dbg(r, msg) {
   if ((r.variables.njs_debug || "0") === "1") r.log("[njs] " + msg);
 }
 
-// function addCORS(r) {
-//   // If your frontend uses credentials, switch '*' to the request Origin and also add:
-//   //   r.headersOut["Access-Control-Allow-Credentials"] = "true";
-//   // and consider adding Vary: Origin
-//   r.headersOut["Access-Control-Allow-Origin"] = "*";
-//   r.headersOut["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
-//   r.headersOut["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
-// }
 function addCORS(r) {
-  // Mirror the caller's Origin when present (needed for credentials),
-  // otherwise fall back to "*"
   var origin = r.headersIn["origin"];
   if (origin) {
     r.headersOut["Access-Control-Allow-Origin"] = origin;
-    r.headersOut["Vary"] = "Origin"; // avoid cache mix-ups
+    r.headersOut["Vary"] = "Origin";
+    r.headersOut["Access-Control-Allow-Credentials"] = "true";
   } else {
     r.headersOut["Access-Control-Allow-Origin"] = "*";
   }
-
-  r.headersOut["Access-Control-Allow-Credentials"] = "true";
   r.headersOut["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
 
-  // If the browser asked for specific headers, echo them back
   var reqHdrs = r.headersIn["access-control-request-headers"];
   r.headersOut["Access-Control-Allow-Headers"] = reqHdrs
     ? reqHdrs
@@ -71,41 +59,15 @@ function parseJsonRpcBody(txt) {
   }
 }
 
-// async function readBodySafe(r) {
-//   var body = null;
-//   try {
-//     dbg(r, "requestText()" + JSON.stringify(r));
-//     body = await r.requestText();
-//   } catch (e) {
-//     body = null;
-//     dbg(r, "requestText() threw: " + e);
-//   }
-//   try {
-//     body = await r.requestBody();
-//   } catch (e) {
-//     body = null;
-//     dbg(r, "requestBody() threw: " + e);
-//   }
-//   if (!body || body.length === 0) {
-//     body = r.variables.request_body || "";
-//     dbg(r, "fallback $request_body, len=" + body.length);
-//   } else {
-//     dbg(r, "requestText() ok, len=" + body.length);
-//   }
-//   return body;
-// }
 async function readBodySafe(r) {
-  // njs can expose the body in different ways depending on version/build
   try {
     if (typeof r.requestText === "function") {
-      // modern njs: async reader
       var t = await r.requestText();
       if (t && t.length) {
         dbg(r, "readBodySafe: via requestText() len=" + t.length);
         return t;
       }
     } else if (typeof r.requestText === "string" && r.requestText.length) {
-      // some builds expose a string property named requestText (!)
       dbg(
         r,
         "readBodySafe: via requestText (string) len=" + r.requestText.length
@@ -115,13 +77,10 @@ async function readBodySafe(r) {
   } catch (e) {
     dbg(r, "readBodySafe: requestText threw: " + e);
   }
-
-  // other possible places
   if (typeof r.requestBody === "string" && r.requestBody.length) {
     dbg(r, "readBodySafe: via requestBody len=" + r.requestBody.length);
     return r.requestBody;
   }
-
   var v = r.variables.request_body || "";
   dbg(r, "readBodySafe: via $request_body len=" + v.length);
   return v;
@@ -135,7 +94,7 @@ function subreqBody(res) {
   return "";
 }
 
-// ---- whitelist verifier call (internal subrequest) ----
+/* ---------- verifier (whitelist) via internal subrequest ---------- */
 async function verifyViaSubrequest(r, payload) {
   dbg(
     r,
@@ -171,34 +130,55 @@ async function verifyViaSubrequest(r, payload) {
   }
 }
 
-// ---- proxy to RPC (internal subrequest), then relay response + CORS ----
-async function proxyToUpstream(r, bodyOpt) {
-  var tail = r.uri + (r.variables.args ? "?" + r.variables.args : "");
-  var res = await r.subrequest("/__upstream" + tail, {
-    method: r.method,
-    body: bodyOpt,
-  });
+/* ---------- proxy to RPC upstream via internal subrequest ---------- */
+// async function proxyToUpstream(r, bodyOpt) {
+//   try {
+//     var tail = r.uri + (r.variables.args ? "?" + r.variables.args : "");
+//     var res = await r.subrequest("/__upstream" + tail, {
+//       method: r.method,
+//       body: bodyOpt,
+//     });
 
-  var out = subreqBody(res);
-  var ct =
-    (res.headersOut &&
-      (res.headersOut["Content-Type"] || res.headersOut["content-type"])) ||
-    "application/json";
+//     var out = subreqBody(res) || "";
+//     var ct =
+//       (res.headersOut &&
+//         (res.headersOut["Content-Type"] || res.headersOut["content-type"])) ||
+//       "application/json";
+//     var enc =
+//       (res.headersOut &&
+//         (res.headersOut["Content-Encoding"] ||
+//           res.headersOut["content-encoding"])) ||
+//       "";
 
-  r.status = res.status;
-  r.headersOut["Content-Type"] = ct;
-  addCORS(r);
-  // r.headersOut["Access-Control-Allow-Origin"] = "*";
-  // r.send(out || "");
-  r.sendHeader();
-  if (out.length) r.send(out);
-  // r.finish();
-  r.finish();
+//     r.status = res.status || 502;
+//     r.headersOut["Content-Type"] = ct;
+//     if (enc) r.headersOut["Content-Encoding"] = enc;
+
+//     addCORS(r);
+//     r.sendHeader(); // ensure proper HTTP/1.1 response
+//     if (out.length) r.send(out); // relay exact JSON (unchanged)
+//     r.finish();
+//   } catch (e) {
+//     addCORS(r);
+//     r.headersOut["Content-Type"] = "application/json";
+//     r.return(
+//       502,
+//       JSON.stringify({ error: "upstream_error", detail: String(e) })
+//     );
+//   }
+// }
+function proxyToUpstream(r, bodyOpt) {
+  if (bodyOpt !== undefined) {
+    // save body to an nginx variable so the named location can reuse it
+    r.variables.req_body = bodyOpt;
+    r.internalRedirect("@up_post");
+  } else {
+    r.internalRedirect("@up_get");
+  }
 }
 
-// ---- GET gate (for /broadcast_tx_*?tx=...) ----
+/* ---------- GET gate only for /broadcast_tx_* ---------- */
 async function gateGET(r) {
-  dbg(r, "gateGET uri=" + r.uri + " args=" + (r.variables.args || ""));
   var isBroadcast = /\/broadcast_tx_(sync|commit|async)$/.test(r.uri);
   if (!isBroadcast) return true;
 
@@ -238,25 +218,12 @@ async function gateGET(r) {
   return true;
 }
 
-// ---- POST gate (JSON-RPC broadcast methods) ----
-async function gatePOST(r) {
+/* ---------- POST gate only for broadcast_* methods ---------- */
+async function gatePOST(r, body) {
   var ct = (r.headersIn["content-type"] || "").toLowerCase();
-  dbg(r, "gatePOST ct=" + ct);
   if (ct.indexOf("application/json") === -1) return true;
 
-  var body = await readBodySafe(r);
-  if (!body) {
-    addCORS(r);
-    r.headersOut["Content-Type"] = "application/json";
-    r.return(
-      400,
-      JSON.stringify({ error: "bad_request", detail: "cannot read body" })
-    );
-    return false;
-  }
-
   var parsed = parseJsonRpcBody(body);
-  dbg(r, "gatePOST parsed.ok=" + parsed.ok + " method=" + parsed.method);
   if (!parsed.ok) return true;
 
   var m = parsed.method;
@@ -264,8 +231,10 @@ async function gatePOST(r) {
     m !== "broadcast_tx_sync" &&
     m !== "broadcast_tx_commit" &&
     m !== "broadcast_tx_async"
-  )
+  ) {
+    // e.g. status, abci_query, tx_search → NOT gated
     return true;
+  }
 
   var v = await verifyViaSubrequest(r, body);
   if (!v.ok || !v.verified) {
@@ -284,22 +253,18 @@ async function gatePOST(r) {
   return true;
 }
 
-// ---- single public handler: gate -> proxy (subrequest) ----
+/* ---------- single public handler ---------- */
 async function entry(r) {
   dbg(r, "entry: method=" + r.method + " uri=" + r.uri);
 
-  // WebSocket → pass to named upstream (subrequest can’t handle WS)
   var upg = r.headersIn["upgrade"];
   if (upg && upg.toLowerCase() === "websocket") {
-    dbg(r, "entry: WS upgrade; redirecting to @up");
-    return r.internalRedirect("@up");
+    return r.internalRedirect("@up_ws");
   }
 
-  // CORS preflight
-  // In your entry() (preflight branch), make sure you call addCORS and return 204:
   if (r.method === "OPTIONS") {
     addCORS(r);
-    r.headersOut["Access-Control-Max-Age"] = "86400"; // optional: cache preflight for 1 day
+    r.headersOut["Access-Control-Max-Age"] = "86400";
     r.return(204, "");
     return;
   }
@@ -307,43 +272,20 @@ async function entry(r) {
   if (r.method === "GET") {
     var okGet = await gateGET(r);
     if (!okGet) return;
-    return proxyToUpstream(r);
+    proxyToUpstream(r); // no body
+    return;
   }
 
   if (r.method === "POST") {
-    var body = await readBodySafe(r); // we consumed it; forward it ourselves
-    var ct = (r.headersIn["content-type"] || "").toLowerCase();
-    if (ct.indexOf("application/json") !== -1) {
-      var parsed = parseJsonRpcBody(body || "");
-      if (parsed.ok) {
-        var m = parsed.method;
-        if (
-          m === "broadcast_tx_sync" ||
-          m === "broadcast_tx_commit" ||
-          m === "broadcast_tx_async"
-        ) {
-          var v = await verifyViaSubrequest(r, body);
-          if (!v.ok || !v.verified) {
-            addCORS(r);
-            r.headersOut["Content-Type"] = "application/json";
-            r.return(
-              403,
-              JSON.stringify({
-                error: "not_whitelisted",
-                address: v.address || "",
-                verified: false,
-              })
-            );
-            return;
-          }
-        }
-      }
-    }
-    return proxyToUpstream(r, body);
+    var body = await readBodySafe(r); // read once for gating
+    var okPost = await gatePOST(r, body);
+    if (!okPost) return;
+    proxyToUpstream(r, body); // stream via named location with restored body
+    return;
   }
 
-  // Other methods → just proxy
-  return proxyToUpstream(r);
+  proxyToUpstream(r);
+  return;
 }
 
 export default { entry: entry };
