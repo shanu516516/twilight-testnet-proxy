@@ -9,16 +9,17 @@ services:
       args:
         DOCKER_BUILDKIT: 1
     hostname: frontend
+    restart: always
     networks:
       - proxy-network
     ports:
       - 3000:3000
 
-  decoder_rpc:
-    build: ./nginx/rust_decode_rpc
+  nyks_tx_decoder:
+    build: ./nyks_tx_decoder
     restart: always
-    container_name: decoder_rpc
-    hostname: decoder_rpc
+    container_name: nyks_tx_decoder
+    hostname: nyks_tx_decoder
     networks:
       - proxy-network
     ports:
