@@ -1,0 +1,43 @@
+{
+    "chain_name": "nyks",
+    "registry_name": "nyks",
+    "api": [
+        {
+            "provider": "nyks",
+            "address": "https://lcd.testnet.twilight.rest/"
+        }
+    ],
+    "rpc": [
+        {
+            "provider": "nyks",
+            "address": "https://rpc.testnet.twilight.rest/"
+        }
+    ],
+    "faucet": {
+        "amount": "50000nyks",
+        "ip_limit": "5",
+        "address_limit": "2",
+        "fees": "1000nyks"
+    },
+    "sdk_version": "0.45.3",
+    "coin_type": "118",
+    "min_tx_fee": "0",
+    "addr_prefix": "twilight",
+    "logo": "https://frontend.testnet.twilight.rest/favicon/favicon.svg",
+    "assets": [
+        {
+            "base": "nyks",
+            "symbol": "NYKS",
+            "exponent": "0",
+            "coingecko_id": "nyks",
+            "logo": "https://frontend.testnet.twilight.rest/favicon/favicon.svg"
+        },
+        {
+            "base": "sats",
+            "symbol": "SATS",
+            "exponent": "0",
+            "coingecko_id": "nyks",
+            "logo": "https://frontend.testnet.twilight.rest/favicon/favicon.svg"
+        }
+    ]
+}

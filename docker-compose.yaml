@@ -37,7 +37,7 @@ services:
       # Required
       DOMAIN: ${DOMAIN}
       # Optional overrides (defaults provided in template)
-      EXPLORER_ORIGIN: ${EXPLORER_ORIGIN:-146.190.129.13:80}
+      EXPLORER_ORIGIN: ${EXPLORER_ORIGIN:-172.17.0.1:8081}
       LCD_HOST: ${LCD_HOST:-172.17.0.1:1317}
       RPC_HOST: ${RPC_HOST:-172.17.0.1:26657}
       FAUCET_HOST: ${FAUCET_HOST:-172.17.0.1:6969}
@@ -51,12 +51,33 @@ services:
       AUTH_BACKEND: ${AUTH_BACKEND:-172.17.0.1:5000}
       VERIFIER_URL: ${VERIFIER_URL:-172.17.0.1:8080}
       WHITELIST_HOST: ${WHITELIST_HOST:-172.17.0.1:8080}
+      PING_PONG_FAUCET_HOST: ${PING_PONG_FAUCET_HOST:-172.17.0.1:8082}
     networks:
       - proxy-network
     volumes:
       - ./certbot/www:/var/www/certbot:ro
       - ./certbot/conf:/etc/nginx/ssl:ro
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+
+  nyks_explorer:
+    build: ./nyks_explorer
+    restart: always
+    container_name: nyks_explorer
+    hostname: nyks_explorer
+    networks:
+      - proxy-network
+    ports:
+      - 8081:80
+
+  pingpong_faucet:
+    build: ./nyks_faucet
+    restart: always
+    container_name: pingpong_faucet
+    hostname: pingpong_faucet
+    networks:
+      - proxy-network
+    ports:
+      - 8082:8082
 
   certbot:
     image: certbot/certbot:latest

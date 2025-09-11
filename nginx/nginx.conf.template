@@ -21,6 +21,8 @@ upstream api         { server ${WEB_BACKEND};       }
 upstream ws          { server ${WS_BACKEND};        }
 upstream whitelist   { server ${WHITELIST_HOST};    }
 upstream verifier    { server ${VERIFIER_URL};       }
+upstream ping_pong_faucet    { server ${PING_PONG_FAUCET_HOST};       }
+
 
 # ---------- :80 redirectors ----------
 # relayer.${DOMAIN}
@@ -120,6 +122,31 @@ server {
     add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS';
     add_header Access-Control-Allow-Headers 'Content-Type, Authorization';
   }
+  # ^~ /faucet
+  location ^~ /faucet/  {
+    proxy_pass http://ping_pong_faucet/;
+    proxy_http_version          1.1;
+    proxy_set_header Host       $host;
+    proxy_set_header X-Real-IP  $remote_addr;
+    proxy_hide_header Access-Control-Allow-Origin;
+    proxy_read_timeout 60s;
+    proxy_connect_timeout 10s;
+    proxy_send_timeout 60s;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    add_header Access-Control-Allow-Origin  *;
+    add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS';
+    add_header Access-Control-Allow-Headers 'Content-Type, Authorization';
+    if ($request_method = OPTIONS) {
+        add_header Access-Control-Allow-Origin  *                                       always;
+        add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS'                   always;
+        add_header Access-Control-Allow-Headers 'Content-Type, Authorization'          always;
+        add_header Content-Length 0;
+        add_header Content-Type text/plain;
+        return 204;
+    }
+  }
+  location ^~ /send/ { return 301 /faucet$uri$is_args$args; }
+  location = /config.json { return 301 /faucet/config.json; }
 
   location /ws {
     proxy_pass http://ws;
@@ -166,7 +193,7 @@ server {
   server_name rpc.${DOMAIN};
   ssl_certificate     /etc/nginx/ssl/live/rpc.${DOMAIN}/fullchain.pem;
   ssl_certificate_key /etc/nginx/ssl/live/rpc.${DOMAIN}/privkey.pem;
-# define a variable NJS will write into
+  # define a variable NJS will write into
   set $req_body "";
 
   # INTERNAL verifier (unchanged, but ensure we pass the original body there too)
@@ -258,6 +285,7 @@ server {
     js_content verify.entry;
   }
 }
+
 # ---------- frontend.${DOMAIN} -> frontend ----------
 server {
   listen 443 ssl; listen [::]:443 ssl;
@@ -357,6 +385,7 @@ server {
             return 204;
         }
     }
+
 }
 
 # zk-kyc.${DOMAIN} :443
