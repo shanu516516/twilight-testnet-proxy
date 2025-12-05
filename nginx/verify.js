@@ -114,9 +114,20 @@ async function verifyViaSubrequest(r, payload) {
   try {
     var o = JSON.parse(body);
     var resObj = o && o.result ? o.result : o;
-    var v = !!(resObj && resObj.verified === true);
+    var v = false;
     var addr = resObj && resObj.address ? resObj.address : "";
-    dbg(r, "verifyViaSubrequest: parsed verified=" + v + " address=" + addr);
+    // If is_kyc_mandatory === false, treat as verified true
+    if (resObj && resObj.is_kyc_mandatory === false) {
+      v = true;
+      dbg(
+        r,
+        "verifyViaSubrequest: is_kyc_mandatory is false, treating as verified=true; address=" +
+          addr
+      );
+    } else {
+      v = !!(resObj && resObj.verified === true);
+      dbg(r, "verifyViaSubrequest: parsed verified=" + v + " address=" + addr);
+    }
     return { ok: true, verified: v, address: addr };
   } catch (e) {
     dbg(
